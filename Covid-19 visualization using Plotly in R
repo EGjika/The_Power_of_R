@@ -1,0 +1,191 @@
+---
+title: "THE POWER"
+subtitle: "Data Science and technology Workshop Tirana 15&16 October 2021"
+author: "Eralda Gjika"
+output: html_notebook
+---
+
+# Libraries
+```{r}
+## First specify the packages of interest
+packages = c("tidyverse", "sjlabelled","ggplot2","broom","GGally", "viridis", "janitor","lubridate","forecast","fpp3","quantmod","fpp2","ggthemes","hrbrthemes","correlation","see","ggraph","plotly","dplyr", "gganimate")
+
+## Now load or install&load all
+package.check <- lapply(
+  packages,
+  FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+      install.packages(x, dependencies = TRUE)
+      library(x, character.only = TRUE)
+    }
+  }
+)
+```
+
+# Data source
+```{r}
+OWD<-read.csv("https://covid.ourworldindata.org/data/owid-covid-data.csv")
+head(OWD)
+```
+# Time variable
+```{r}
+OWD$date<- as.POSIXct(OWD$date, format = "%Y-%m-%d")
+OWD$date<-as.Date(OWD$date,format='%Y/%m/%d')# convert time date into a date variable
+OWD<-OWD %>%
+  dplyr::mutate(year = lubridate::year(date), 
+                month = lubridate::month(date), 
+                day = lubridate::day(date))
+##  Convert numeric month numeric values to name abbreviations
+OWD$month<- month.abb[OWD$month] 
+## remove all empty variables (columns) from dataset (janitor package)
+OWD<-OWD %>%
+  remove_empty("cols") #select either row or cols or both
+dim(OWD)# there are not empty columns
+# substitute negative values from columns with NA-s
+OWD<-OWD
+OWD[OWD<0] <- 0 
+
+```
+# Plot time series
+```{r}
+OWD.1<-OWD %>%
+  dplyr::filter(location == "World")
+fig <- plot_ly(OWD.1, x = ~date)
+fig <- fig %>% add_lines(y = ~total_cases, name = "Total Cases")
+fig <- fig %>% add_lines(y = ~total_deaths, name = "Total Deaths")
+fig <- fig %>% layout(
+    title = "Covid daily cumulative Cases and Deaths",
+    xaxis = list(
+      rangeselector = list(
+        buttons = list(
+          list(
+            count = 3,
+            label = "3 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 6,
+            label = "6 mo",
+            step = "month",
+            stepmode = "backward"),
+          list(
+            count = 1,
+            label = "1 yr",
+            step = "year",
+            stepmode = "backward"),
+          list(
+            count = 1,
+            label = "YTD",
+            step = "year",
+            stepmode = "todate"),
+          list(step = "all"))),
+
+      rangeslider = list(type = "date")),
+
+    yaxis = list(title = "Number of Cases"))
+
+fig
+```
+
+# BoxPlot
+```{r}
+OWD.2<-OWD %>%
+ filter(continent %in% c("Europe", "North America","Asia","Africa","South America","Oceania"))
+fig <- plot_ly(OWD.2, x = ~total_deaths, color = ~continent, type = "box")
+
+fig
+```
+
+```{r}
+OWD.eu<-OWD %>%
+ filter(continent %in% c("Europe"))
+
+fig <- plot_ly(OWD.eu, type = 'scatter', mode = 'lines')%>%
+  add_trace(x = ~date, y = ~people_vaccinated,color=~location)%>%
+  layout(showlegend = F, title='Time Series of people vaccinated for Europe',
+         xaxis = list(rangeslider = list(visible = T),
+                      rangeselector=list(
+                        buttons=list(
+                          list(count=1, label="1m", step="month", stepmode="backward"),
+                          list(count=6, label="6m", step="month", stepmode="backward"),
+                          list(count=1, label="YTD", step="year", stepmode="todate"),
+                          list(count=1, label="1y", step="year", stepmode="backward"),
+                          list(step="all")
+                        ))))
+fig <- fig %>%
+  layout(
+         xaxis = list(zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         yaxis = list(zerolinecolor = '#ffff',
+                      zerolinewidth = 2,
+                      gridcolor = 'ffff'),
+         plot_bgcolor='#e5ecf6', margin = 0.1, width = 900)
+fig
+```
+# New cases dynamic evolution of Covid-19
+```{r}
+library(gganimate)
+OWD_1<-subset(OWD, location != "Asia")
+OWD_1<-subset(OWD_1, location!="Europe")
+OWD_1<-subset(OWD_1, location!="North America")
+OWD_1<-subset(OWD_1, location!="South America")
+OWD_1<-subset(OWD_1, location!="World")
+OWD_1<-subset(OWD_1, location!="European Union")
+OWD_1<-subset(OWD_1, location!="International")
+OWD_1<-subset(OWD_1, location!="Oceania")
+OWD_1<-subset(OWD_1, location!="Africa")
+
+# OWD_1 has World and other location removed
+OWD_4<-OWD_1 %>%
+ filter(date >= as.Date("2021-09-01"))
+
+p <- OWD_4 %>%
+  filter(new_cases > 0 & new_cases < 40000000) %>%
+  arrange(location, date) %>%
+  group_by(location) %>%
+  mutate(new_cases_cum = cumsum(new_cases)) %>%
+  group_by(date) %>%
+  top_n(10, new_cases_cum) %>%
+  mutate(location = factor(location)) %>%
+  mutate(rank = dense_rank(-new_cases_cum)) %>%
+  ungroup %>%
+  ggplot() + 
+  aes(rank, group = location, fill = location, color = location) +
+  geom_tile(aes(y = new_cases_cum/2,height = new_cases_cum, width = 0.9), alpha = 0.8, color = NA) + 
+  geom_text(aes(y = 0, label = paste(location, " ")), vjust = 0.2, hjust = 1) +
+  coord_flip(clip = "off", expand = FALSE) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_reverse() +
+  guides(color = FALSE, fill = FALSE) +
+  labs(title='{closest_state}', x = "", y = "Total cases") +
+  theme(plot.title = element_text(hjust = 0, size = 22),axis.ticks.y = element_blank(),axis.text.y  = element_blank(),plot.margin = margin(1,1,1,4, "cm"))
+
+p+transition_states(date, transition_length = 20)
+```
+# Total Vaccinations dynamic evolution of Covid-19
+```{r}
+p <- OWD_4 %>%
+  filter(total_vaccinations > 0 & total_vaccinations < 3400000000) %>%
+  arrange(location, date) %>%
+  group_by(location) %>%
+  mutate(total_vaccinations_cum = cumsum(total_vaccinations)) %>%
+  group_by(date) %>%
+  top_n(10, total_vaccinations_cum) %>%
+  mutate(location = factor(location)) %>%
+  mutate(rank = dense_rank(-total_vaccinations_cum)) %>%
+  ungroup %>%
+  ggplot() + 
+  aes(rank, group = location, fill = location, color = location) +
+  geom_tile(aes(y = total_vaccinations_cum/2,height = total_vaccinations_cum, width = 0.9), alpha = 0.8, color = NA) + 
+  geom_text(aes(y = 0, label = paste(location, " ")), vjust = 0.2, hjust = 1) +
+  coord_flip(clip = "off", expand = FALSE) +
+  scale_y_continuous(labels = scales::comma) +
+  scale_x_reverse() +
+  guides(color = FALSE, fill = FALSE) +
+  labs(title='{closest_state}', x = "", y = "Total Vaccinations") +
+  theme(plot.title = element_text(hjust = 0, size = 22),axis.ticks.y = element_blank(),axis.text.y  = element_blank(),plot.margin = margin(1,1,1,4, "cm"))
+
+p+transition_states(date, transition_length = 20)
+```
+
